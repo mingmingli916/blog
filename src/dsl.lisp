@@ -29,23 +29,25 @@ If the post exists, we update title/content and bump updated-at (created-at stay
     (save-post-to-disk p)
     p))
 
-;;; Example posts 
-(defpost "hello-lisp"
-  :title "Write a blog with Common Lisp"
-  :content
-  ((h1 "Write a blog with Common Lisp")
-   (p "This is Level 0: write + persist + view.")
-   (h2 "Why Lisp DSL?")
-   (p "Because your content is structured data.")
-   (code "(defmacro blog () 'freedom)")))
 
-(defpost "second-post"
-  :title "Second Post"
-  :content
-  ((p "You now have a homepage listing posts.")))
 
-(defpost "about-this-blog"
-  :title "About this blog"
-  :content
-  ((p "This is a minimal long-term blog system.")
-   (p "Level 2 focuses on stability: slug + metadata + archive.")))
+;; ;;; Example posts 
+;; (defpost "hello-lisp"
+;;   :title "Write a blog with Common Lisp"
+;;   :content
+;;   ((h1 "Write a blog with Common Lisp")
+;;    (p "This is Level 0: write + persist + view.")
+;;    (h2 "Why Lisp DSL?")
+;;    (p "Because your content is structured data.")
+;;    (code "(defmacro blog () 'freedom)")))
+
+;; (defpost "second-post"
+;;   :title "Second Post"
+;;   :content
+;;   ((p "You now have a homepage listing posts.")))
+
+;; (defpost "about-this-blog"
+;;   :title "About this blog"
+;;   :content
+;;   ((p "This is a minimal long-term blog system.")
+;;    (p "Level 2 focuses on stability: slug + metadata + archive.")))

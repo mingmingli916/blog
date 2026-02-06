@@ -7,7 +7,8 @@
     (loop for (k v) on plist by #'cddr do
       (when (and k v)
         (format out " ~a=\"~a\""
-                (string-downcase (subseq (symbol-name k) 1)) ; :href -> href
+                ;; keyword like :src -> "src"
+                (string-downcase (symbol-name k)) 
                 (html-escape v))))))
 
 (defun render-node (node)
@@ -54,7 +55,12 @@
 
            ;; image
            ((string= tag "img")
-            (format nil "<img~a/>~%" (%attrs->string attrs)))
+            (let ((src (getf attrs :src)))
+              ;; 让 "images/xxx.png" 变成 "/images/xxx.png"，避免在 /post/... 下变相对路径
+              (when (and (stringp src) (uiop:string-prefix-p "images/" src))
+                (setf (getf attrs :src) (concatenate 'string "/" src)))
+              (format nil "<img~a/>~%" (%attrs->string attrs))))
+
 
            ;; math (KaTeX placeholder)
            ((string= tag "math")
