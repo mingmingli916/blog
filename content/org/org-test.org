@@ -1,0 +1,24 @@
+#+TITLE: Org Test
+#+SLUG: org-test
+#+DATE: 2026-02-06
+#+OPTIONS: toc:nil num:nil
+
+* Org
+
+Write post in org and convert it to sexp.
+
+** Code
+
+#+begin_src shell
+  sbcl --script scripts/import-org.lisp
+#+end_src
+
+
+** Math
+
+$$
+\frac{\partial c}{\partial t} = \nabla \cdot (D \nabla c + z u_m F c \nabla \phi_{\text{ionic}})
+$$
+
+
+

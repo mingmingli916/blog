@@ -6,6 +6,7 @@
 * Emacs Notes
 
 Write here.
+
 This the content I added.
 
 ** Code
@@ -16,3 +17,8 @@ This the content I added.
   ;; added code
   (format nil "hello world")
 #+end_src
+
+
+$$
+\sigma
+$$

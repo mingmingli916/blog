@@ -26,7 +26,7 @@
 (defun sort-posts-by-updated-desc (posts)
   (sort posts #'> :key (lambda (p) (or (getf p :updated-at) 0))))
 
-(define-easy-handler (index-handler :uri "/") ()
+(hunchentoot:define-easy-handler (index-handler :uri "/") ()
   (let* ((posts (sort-posts-by-updated-desc (all-posts-list))))
     (respond-html
      (page "Blog"
@@ -60,7 +60,7 @@
                ht)
       (sort alist #'string> :key #'car))))
 
-(define-easy-handler (archive-handler :uri "/archive") ()
+(hunchentoot:define-easy-handler (archive-handler :uri "/archive") ()
   (let* ((posts (all-posts-list))
          (groups (group-posts-by-ym posts)))
     (respond-html
@@ -82,22 +82,9 @@
                                (html-escape (ut->ymdhm created)))))
                    (write-string "</ul>" out))))))))
 
-;; (define-easy-handler (about-handler :uri "/about") ()
-;;   (respond-html
-;;    (page "About"
-;;          (with-output-to-string (out)
-;;            (write-string "<p>This is a minimal Common Lisp blog.</p>" out)
-;;            (write-string "<p>Level 2 focuses on long-term stability:</p>" out)
-;;            (write-string "<ul>" out)
-;;            (write-string "<li>Stable Slugs (URLs never change)</li>" out)
-;;            (write-string "<li>created-at / updated-at metadata</li>" out)
-;;            (write-string "<li>Archive page</li>" out)
-;;            (write-string "</ul>" out)
-;;            ;; 更新：现在数据目录不在 ./posts
-;;            (format out "<p class=\"muted\">Posts live in: <code>~a</code></p>"
-;;                    (html-escape (namestring *posts-dir*)))))))
 
-(define-easy-handler (about-handler :uri "/about") ()
+
+(hunchentoot:define-easy-handler (about-handler :uri "/about") ()
   (respond-html
    (page "About"
          (with-output-to-string (out)
@@ -128,17 +115,8 @@
 
 
 
-(defun post-not-found-page (slug)
-  (page "404"
-        (format nil "<p>Not found: <code>~a</code></p>" (html-escape slug))
-        :subtitle "The post does not exist."))
 
-(defun post-page (post)
-  (page (or (getf post :title) (getf post :slug))
-        (render-post-body post)
-        :subtitle (format nil "/post/~a" (getf post :slug))))
-
-(define-easy-handler (post-query-handler :uri "/post") (slug)
+(hunchentoot:define-easy-handler (post-query-handler :uri "/post") (slug)
   "Fallback: /post?slug=..."
   (if (and slug (safe-slug-p slug))
       (let ((p (find-post slug)))

@@ -15,5 +15,7 @@
      (:file "storage")
      (:file "dsl")
      (:file "render")
-     (:file "routes")
-     (:file "server")))))
+     (:file "routes")                   ;
+     (:file "server")                   ; start/stop hunchentoot server
+     (:file "org-mini")))               ; org -> sexp
+   ))
