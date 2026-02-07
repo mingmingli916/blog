@@ -1,6 +1,6 @@
 (in-package :blog)
 
-(defmacro defpost (slug &key title content)
+(defmacro defpost (slug &key title category tags content)
   "Define a post.
 Slug is permanent.
 If the post exists, we update title/content and bump updated-at (created-at stays)."
@@ -13,6 +13,8 @@ If the post exists, we update title/content and bump updated-at (created-at stay
             (updated (now-ut))
             (p (list :slug s
                      :title ,title
+                     :category (normalize-category ,category)
+                     :tags (normalize-tags ,tags)
                      :content ',content
                      :created-at created
                      :updated-at updated)))

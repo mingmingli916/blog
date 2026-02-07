@@ -39,13 +39,33 @@
                    (dolist (p posts)
                      (let* ((slug (getf p :slug))
                             (title (or (getf p :title) slug))
-                            (updated (getf p :updated-at)))
+                            (updated (getf p :updated-at))
+                            (cat (getf p :category))
+                            (tags (getf p :tags)))
                        (format out
                                "<li><a href=\"~a\">~a</a><div class=\"meta\">Updated: ~a · Slug: ~a</div></li>~%"
                                (url-for-post slug)
                                (html-escape title)
                                (html-escape (ut->ymdhm updated))
-                               (html-escape slug))))
+                               (html-escape slug)
+
+                               ;; category segment
+                               (if cat
+                                   (format nil " · Cagetory: <a href=\"~a\">~a</a>"
+                                           (html-escape (url-for-category cat))
+                                           (html-escape cat))
+                                   "")
+
+                               ;; tags segment
+                               (if (and (listp tags) tags)
+                                   (with-output-to-string (o)
+                                     (write-string " · Tags: " o)
+                                     (loop for ta in tags for i from 0 do
+                                           (when (> i 0) (write-string ", " o))
+                                           (format o "<a href=\"~a\">~a</a>"
+                                                   (html-escape (url-for-tag ta))
+                                                   (html-escape ta))))
+                                   ""))))
                    (write-string "</ol>" out))))
            :subtitle "A long-term technical notebook"))))
 
@@ -139,3 +159,80 @@
                     (respond-html (post-page p))
                     (respond-html (post-not-found-page slug) 404)))
               (respond-text "Bad slug" 400)))))))
+
+
+(defun posts-by-category (cat)
+  (let ((cat (normalize-category cat)))
+    (remove-if-not (lambda (p)
+                     (equal (normalize-category (getf p :category)) cat))
+                   (all-posts-list))))
+
+
+(defun posts-by-category-token (cat-token)
+  (remove-if-not
+   (lambda (p)
+     (let ((c (getf p :category)))
+       (and c (string= (sanitize-token c) cat-token))))
+   (all-posts-list)))
+
+(defun posts-by-tag (tag)
+  (let ((tag (sanitize-token tag)))
+    (remove-if-not (lambda (p)
+                     (member tag (or (getf p :tags) '()) :test #'equal))
+                   (all-posts-list))))
+
+
+
+(defun taxonomy-page (title subtitle posts)
+  (respond-html
+   (page title
+         (with-output-to-string (out)
+           (if (null posts)
+               (write-string "<p class=\"muted\">No posts.</p>" out)
+               (progn
+                 (write-string "<ol class=\"postlist\">" out)
+                 (dolist (p (sort-posts-by-updated-desc posts))
+                   (let* ((slug (getf p :slug))
+                          (ptitle (or (getf p :title) slug))
+                          (updated (getf p :updated-at)))
+                     (format out
+                             "<li><a href=\"~a\">~a</a><div class=\"meta\">Updated: ~a</div></li>~%"
+                             (url-for-post slug)
+                             (html-escape ptitle)
+                             (html-escape (ut->ymdhm updated)))))
+                 (write-string "</ol>" out))))
+         :subtitle subtitle)))
+
+
+(defun category-dispatcher (request)
+  "Dispatcher for /category/<name>. (token based)."
+  (let* ((path (hunchentoot:script-name request))
+         (prefix "/category/"))
+    (when (and (>= (length path) (length prefix))
+               (string= prefix (subseq path 0 (length prefix))))
+      (let* ((name (subseq path (length prefix)))
+             (tok (sanitize-token name)))
+        (lambda ()
+          (if (> (length tok) 0)
+              (let* ((posts (posts-by-category-token tok))
+                     (label (or (and posts (getf (first posts) :category)) tok)))
+                (taxonomy-page (format nil "Category: ~a" label)
+                             (format nil "/category/~a" tok)
+                             posts))
+              (respond-text "Bad category" 400)))))))
+
+
+(defun tag-dispatcher (request)
+  "Dispatcher for /tag/<name>."
+  (let* ((path (hunchentoot:script-name request))
+         (prefix "/tag/"))
+    (when (and (>= (length path) (length prefix))
+               (string= prefix (subseq path 0 (length prefix))))
+      (let* ((name (subseq path (length prefix)))
+             (tag (sanitize-token name)))
+        (lambda ()
+          (if (> (length tag) 0)
+              (taxonomy-page (format nil "Tag: ~a" tag)
+                             (format nil "/tag/~a" tag)
+                             (posts-by-tag tag))
+              (respond-text "Bad tag" 400)))))))

@@ -93,11 +93,30 @@
 (defun render-post-body (post)
   (with-output-to-string (out)
     (let* ((created (getf post :created-at))
-           (updated (getf post :updated-at)))
+           (updated (getf post :updated-at))
+           (cat (getf post :category))
+           (tags (getf post :tags)))
       (format out "<div class=\"meta\">Created: ~a"
               (html-escape (if created (ut->ymdhm created) "N/A")))
       (when (and updated created (/= updated created))
         (format out " · Updated: ~a" (html-escape (ut->ymdhm updated))))
+
+      ;; NEW: category
+      (when (and cat (stringp cat) (> (length (string-trim " " cat)) 0))
+        (format out " · Category: <a href=\"~a\">~a</a>"
+                (html-escape (url-for-category cat))
+                (html-escape cat)))
+
+      ;; NEW: tags
+      (when (and (listp tags) tags)
+        (format out " · Tags: ")
+        (loop for ta in tags for i from 0 do
+              (when (> i 0) (write-string ", "  out))
+              (format out "<a href=\"~a\">~a</a>"
+                      (html-escape (url-for-tag ta))
+                      (html-escape ta))))
+
+      
       (format out "</div>~%"))
     (format out "<article>~%")
     (dolist (n (getf post :content))

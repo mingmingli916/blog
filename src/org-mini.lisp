@@ -22,7 +22,22 @@
 ;;; ------------------------------------------------------------
 
 (defun %trim (s)
-  (string-trim '(#\Space #\Tab #\Return #\Newline) (or s "")))
+  ;; copy-seq to avoid displaced strings / char-array printing like #A(...)
+  (copy-seq (string-trim '(#\Space #\Tab #\Return #\Newline) (or s ""))))
+
+(defun %force-string (x)
+  "Return a real STRING (stringp => T) or NIL.
+Also fixes 1D character arrays that print as #A(...)."
+  (cond
+    ((null x) nil)
+    ((stringp x) (copy-seq x))
+    ((and (arrayp x)
+          (= (array-rank x) 1)
+          (subtypep (array-element-type x) 'character))
+     (coerce x 'string))
+    (t (copy-seq (princ-to-string x)))))
+
+
 
 (defun %blank-line-p (s)
   (every (lambda (ch) (member ch '(#\Space #\Tab #\Return))) (or s "")))
@@ -62,15 +77,55 @@
           (encode-universal-time 0 0 0 d m y)))
     (error () nil)))
 
+
+(defun %whitespace-char-p (ch)
+  (or (char= ch #\Space)
+      (char= ch #\Tab)
+      (char= ch #\Newline)
+      (char= ch #\Return)))
+
+(defun %delimiter-char-p (ch)
+  (or (char= ch #\,)
+      (%whitespace-char-p ch)))
+
+(defun %split-tags (s)
+  "Split TAGS string into list of strings. Pure CL. Returns NIL for empty."
+  (let ((s (%trim s)))
+    (when (> (length s) 0)
+      (let ((out '())
+            (buf (make-array 0 :element-type 'character :adjustable t :fill-pointer 0)))
+        (labels ((flush ()
+                   (let ((tok (%trim (coerce buf 'string))))
+                     (setf (fill-pointer buf) 0)
+                     (when (> (length tok) 0)
+                       (push tok out)))))
+          (loop for ch across s do
+            (if (%delimiter-char-p ch)
+                (flush)
+                (vector-push-extend ch buf)))
+          (flush)
+          (nreverse out))))))
+
 ;;; ------------------------------------------------------------
 ;;; Metadata: #+TITLE / #+SLUG / #+DATE
 ;;; ------------------------------------------------------------
 
+
 (defun %read-org-metadata (lines)
-  "Return (values slug title date-ut)."
+  "Return (values slug title date-ut category tags cat-found-p tags-found-p).
+
+Notes:
+- category may be NIL (uncategorized).
+- tags is list of strings or NIL.
+- *-found-p indicates whether the keyword exists in file (even if empty),
+  so we can distinguish 'missing' vs 'explicitly empty (clear)'."
   (let ((slug nil)
         (title nil)
-        (date-ut nil))
+        (date-ut nil)
+        (category-raw nil)
+        (tags-raw nil)
+        (cat-found-p nil)
+        (tags-found-p nil))
     (dolist (l lines)
       (let ((tline (%trim l)))
         (cond
@@ -82,8 +137,26 @@
 
           ((and (null date-ut) (%starts-with-ci-p tline "#+date:"))
            (let ((ds (%trim (subseq tline (length "#+date:")))))
-             (setf date-ut (%parse-ymd->ut ds)))))))
-    (values slug title date-ut)))
+             (setf date-ut (%parse-ymd->ut ds))))
+
+          ;; NEW: category
+          ((and (not cat-found-p) (%starts-with-ci-p tline "#+category:"))
+           (setf cat-found-p t)
+           (setf category-raw (%force-string (%trim (subseq tline (length "#+category:"))))))
+
+          ;; NEW: tags
+          ((and (not tags-found-p) (%starts-with-ci-p tline "#+tags:"))
+           (setf tags-found-p t)
+           (setf tags-raw (%trim (subseq tline (length "#+tags:"))))))))
+
+    (let ((category (and cat-found-p
+                         (> (length (%trim category-raw)) 0)
+                         category-raw))
+          (tags (and tags-found-p
+                     (let ((ts (%split-tags tags-raw)))
+                       (and ts ts)))))
+      ;; NOTE: (and ts ts) 可以换成 ts；保留也不影响
+      (values slug title date-ut category tags cat-found-p tags-found-p))))
 
 ;;; ------------------------------------------------------------
 ;;; Headline: * / ** / ***
@@ -285,7 +358,9 @@ Return (values node next-index)."
             ((or (%starts-with-ci-p tline "#+title:")
                  (%starts-with-ci-p tline "#+slug:")
                  (%starts-with-ci-p tline "#+date:")
-                 (%starts-with-ci-p tline "#+options:"))
+                 (%starts-with-ci-p tline "#+options:")
+                 (%starts-with-ci-p tline "#+category:")
+                 (%starts-with-ci-p tline "#+tags:"))
              (incf i))
 
             ;; code block: #+begin_src LANG ... #+end_src
@@ -350,12 +425,15 @@ Return (values node next-index)."
 ;;;   - file-write-date(org)
 ;;; ------------------------------------------------------------
 
+
+
 (defun export-org-file (in-org out-sexp)
   "Export IN-ORG (org subset) to OUT-SEXP (blog plist)."
   (let* ((lines (%read-file-lines in-org))
          (slug0 (pathname-name in-org))
          (org-mtime (or (file-write-date in-org) (now-ut))))
-    (multiple-value-bind (slug title date-ut) (%read-org-metadata lines)
+    
+    (multiple-value-bind (slug title date-ut category tags cat-found-p tags-found-p) (%read-org-metadata lines)
       (let* ((slug (or slug slug0))
              (title (or title slug))
              (existing (and (probe-file out-sexp)
@@ -365,9 +443,20 @@ Return (values node next-index)."
                           (and (listp existing) (getf existing :created-at))
                           (now-ut)))
              (updated org-mtime)
+             ;; If keyword is missing in org, keep existing value.
+             ;; If keyword is present but empty, it clears to NIL.
+             (category* (if cat-found-p
+                            category
+                            (and (listp existing) (getf existing :category))))
+             (tags* (if tags-found-p
+                        tags
+                        (and (listp existing) (getf existing :tags))))
              (content (org-lines->content lines))
              (plist (list :slug slug
                           :title title
+                          ;; NEW
+                          :category category*
+                          :tags tags*
                           :created-at created
                           :updated-at updated
                           :content content)))

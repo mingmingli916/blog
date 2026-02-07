@@ -77,7 +77,7 @@
       (exit-ok))
 
     (let* ((slug (sanitize-slug (first args)))
-           (title (or (second args) slug))
+           (title (first args))
            (root (make-pathname :directory (butlast (pathname-directory (project-root)) 1)))
            (org-dir (ensure-dir (merge-pathnames "content/org/" root)))
            (path (merge-pathnames (format nil "~a.org" slug) org-dir)))
@@ -91,6 +91,8 @@
         (format out "#+TITLE: ~a~%" title)
         (format out "#+SLUG: ~a~%" slug)
         (format out "#+DATE: ~a~%" (iso-date))
+        (format out "#+CATEGORY: ~a~%" "")
+        (format out "#+TAGS: ~a~%" "")
         (format out "#+OPTIONS: toc:nil num:nil~%~%")
         (format out "* ~a~%~%" title)
         (format out "Write here.~%~%")

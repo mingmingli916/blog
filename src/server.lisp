@@ -3,6 +3,8 @@
 
 (defvar *acceptor* nil)
 (defvar *post-dispatcher-installed* nil)
+(defvar *category-dispatcher-installed* nil)
+(defvar *tag-dispatcher-installed* nil)
 
 (defun start-blog (&key (port *port*))
   (ensure-posts-dir)
@@ -14,6 +16,15 @@
     (push #'post-dispatcher hunchentoot:*dispatch-table*)
     (setf *post-dispatcher-installed* t))
 
+  (unless *category-dispatcher-installed*
+    (push #'category-dispatcher hunchentoot:*dispatch-table*)
+    (setf *category-dispatcher-installed* t))
+
+  (unless *tag-dispatcher-installed*
+    (push #'tag-dispatcher hunchentoot:*dispatch-table*)
+    (setf *tag-dispatcher-installed* t))
+
+  
   (let* ((root (asdf:system-source-directory "blog"))
          (img-dir (merge-pathnames "content/org/images/" root)))
     (when (probe-file img-dir)
