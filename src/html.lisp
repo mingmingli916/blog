@@ -48,6 +48,7 @@ img{max-width:100%;height:auto;border-radius:10px}
     (write-string "<nav style=\"margin-top:10px;\">" out)
     (write-string "<a href=\"/\">Home</a>" out)
     (write-string "<a href=\"/archive\">Archive</a>" out)
+    (write-string "<a href=\"/graph\">Graph</a>" out)
     (write-string "<a href=\"/about\">About</a>" out)
     (write-string "</nav></header><hr/>" out)
 

@@ -236,3 +236,221 @@
                              (format nil "/tag/~a" tag)
                              (posts-by-tag tag))
               (respond-text "Bad tag" 400)))))))
+
+
+
+
+;;; ------------------------------
+;;; Graph (Plan A MVP): nodes = posts, links = internal post links
+;;; ------------------------------
+
+(defun string-prefix-p (prefix s)
+  (and (stringp prefix) (stringp s)
+       (<= (length prefix) (length s))
+       (string= prefix (subseq s 0 (length prefix)))))
+
+
+(defun json-escape (s)
+  "Escape a string for safe inclusion inside JSON double quotes."
+  (with-output-to-string (out)
+    (loop for ch across (princ-to-string (or s "")) do
+      (case ch
+        (#\\ (write-string "\\\\" out))
+        (#\" (write-string "\\\"" out))
+        (#\Newline (write-string "\\n" out))
+        (#\Return (write-string "\\r" out))
+        (#\Tab (write-string "\\t" out))
+        (t (write-char ch out))))))
+
+;; (defun parse-slug-from-href (href)
+;;   "Support:
+;; - /post/<slug>
+;; - /post?slug=<slug>
+;; Return slug string or NIL."
+;;   (when (and href (stringp href))
+;;     (cond
+;;       ((string-prefix-p "/post/" href)
+;;        (let ((slug (subseq href (length "/post/"))))
+;;          (and (plusp (length slug)) slug)))
+;;       ((string-prefix-p "/post?slug=" href)
+;;        (let ((slug (subseq href (length "/post?slug="))))
+;;          (and (plusp (length slug)) slug)))
+;;       (t nil))))
+
+(defun parse-slug-from-href (href)
+  "Extract post slug from href. Supports:
+  - /post/<slug>
+  - /post/<slug>/
+  - /post/<slug>?...
+  - /post/<slug>#...
+  - https://domain/.../post/<slug>...
+Return slug string or NIL."
+  (when (and href (stringp href))
+    (let* ((needle "/post/")
+           (pos (search needle href :test #'char=)))
+      (when pos
+        (let* ((start (+ pos (length needle)))
+               (end start)
+               (n (length href)))
+          ;; move end until delimiter ? # / or end
+          (loop while (< end n)
+                for ch = (char href end)
+                while (and (char/= ch #\?)
+                           (char/= ch #\#)
+                           (char/= ch #\/))
+                do (incf end))
+          (when (> end start)
+            (subseq href start end)))))))
+
+
+;; (defun node-a-href (node)
+;;   "If node is (a (:href ...) ...), return href string or NIL."
+;;   (when (and (consp node) (symbolp (car node)))
+;;     (let* ((tag (string-downcase (symbol-name (car node))))
+;;            (rest (cdr node))
+;;            (has-attrs (and rest (consp (car rest)) (keywordp (caar rest))))
+;;            (attrs (and has-attrs (car rest))))
+;;       (when (and (string= tag "a") attrs)
+;;         (getf attrs :href)))))
+
+(defun node-a-href (node)
+  "If node is an <a> sexp, return href string or NIL.
+Supports:
+  (a (:href \"...\") ...)
+  (a :href \"...\" ...)"
+  (when (and (consp node) (symbolp (car node)))
+    (let* ((tag (string-downcase (symbol-name (car node))))
+           (args (cdr node)))
+      (when (string= tag "a")
+        (cond
+          ;; (a (:href "...") ...)
+          ((and args (consp (car args)) (keywordp (caar args)))
+           (getf (car args) :href))
+          ;; (a :href "..." ...)
+          ((and args (keywordp (car args)) (eq (car args) :href)
+                (consp (cdr args)) (stringp (cadr node)))
+           (cadr node))
+          (t nil))))))
+
+
+
+(defun collect-post-link-slugs (content)
+  "Traverse SEXP content and collect target slugs from <a href=...>."
+  (let ((acc '()))
+    (labels ((walk (x)
+               (cond
+                 ((null x) nil)
+                 ((stringp x) nil)
+                 ((consp x)
+                  (let ((href (node-a-href x)))
+                    (when href
+                      (let ((slug (parse-slug-from-href href)))
+                        (when slug (push slug acc)))))
+                  ;; continue walking children
+                  (dolist (e x) (walk e)))
+                 (t nil))))
+      (walk content))
+    (nreverse acc)))
+
+
+(defun posts->graph-json (posts)
+  "Return JSON {nodes:[...],links:[...]}.
+links are deduped and only include targets that exist in *posts*."
+  (let ((seen (make-hash-table :test 'equal)))
+    (with-output-to-string (out)
+      ;; nodes
+      (write-string "{" out)
+      (write-string "\"nodes\":[" out)
+      (loop for p in posts
+            for i from 0 do
+              (when (> i 0) (write-string "," out))
+              (let* ((slug (getf p :slug))
+                     (title (or (getf p :title) slug))
+                     (url (url-for-post slug)))
+                (format out
+                        "{\"id\":\"~a\",\"label\":\"~a\",\"url\":\"~a\"}"
+                        (json-escape slug)
+                        (json-escape title)
+                        (json-escape url))))
+      (write-string "],\"links\":[" out)
+
+      ;; links
+      (let ((first-link t))
+        (dolist (p posts)
+          (let* ((source (getf p :slug))
+                 (targets (collect-post-link-slugs (getf p :content))))
+            (dolist (tgt targets)
+              (when (and (safe-slug-p tgt) (find-post tgt))
+                (let ((k (format nil "~a->~a" source tgt)))
+                  (unless (gethash k seen)
+                    (setf (gethash k seen) t)
+                    (unless first-link (write-string "," out))
+                    (setf first-link nil)
+                    (format out
+                            "{\"source\":\"~a\",\"target\":\"~a\"}"
+                            (json-escape source)
+                            (json-escape tgt)))))))))
+
+      (write-string "]}" out))))
+
+
+
+
+
+(define-easy-handler (graph-handler :uri "/graph") ()
+  (let* ((posts (sort-posts-by-updated-desc (all-posts-list)))
+         (graph-json (posts->graph-json posts)))
+    (respond-html
+     (page "Graph"
+           (with-output-to-string (out)
+             (write-string "<p class=\"muted\">Read-only graph. Double-click a node to open the post.</p>" out)
+             (write-string "<div id=\"graph\" style=\"height:600px;border:1px solid #eee;border-radius:12px;\"></div>" out)
+
+             ;; vis-network
+             (write-string "<link rel=\"stylesheet\" href=\"https://unpkg.com/vis-network/styles/vis-network.min.css\">" out)
+             (write-string "<script src=\"https://unpkg.com/vis-network/standalone/umd/vis-network.min.js\"></script>" out)
+
+             ;; script
+             (write-string "<script>" out)
+             (format out "const GRAPH = ~a;" graph-json)
+
+             ;; IMPORTANT: map source/target -> from/to for vis-network
+             (write-string "
+const nodes = new vis.DataSet((GRAPH.nodes || []).map(n => ({
+  id: n.id,
+  label: n.label,
+  url: n.url
+})));
+
+const edges = new vis.DataSet((GRAPH.links || []).map(e => ({
+  from: e.source,
+  to: e.target
+})));
+
+const container = document.getElementById('graph');
+const network = new vis.Network(container, { nodes, edges }, {
+  nodes: { shape: 'dot', size: 12, font: { size: 14 } },
+  interaction: { hover: true },
+  physics: { stabilization: true }
+});
+
+network.on('doubleClick', (params) => {
+  if (!params.nodes || params.nodes.length === 0) return;
+  const id = params.nodes[0];
+  const n = nodes.get(id);
+  if (n && n.url) window.location.href = n.url;
+});
+" out)
+
+             (write-string "</script>" out))
+           :subtitle "/graph"))))
+
+
+(define-easy-handler (graph-debug-handler :uri "/graph/debug") ()
+  (let ((posts (sort-posts-by-updated-desc (all-posts-list))))
+    (respond-text
+     (with-output-to-string (out)
+       (dolist (p posts)
+         (let* ((slug (getf p :slug))
+                (targets (collect-post-link-slugs (getf p :content))))
+           (format out "~&~a -> ~s~%" slug targets)))))))
