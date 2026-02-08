@@ -416,25 +416,159 @@ links are deduped and only include targets that exist in *posts*."
 
              ;; IMPORTANT: map source/target -> from/to for vis-network
              (write-string "
-const nodes = new vis.DataSet((GRAPH.nodes || []).map(n => ({
-  id: n.id,
-  label: n.label,
-  url: n.url
-})));
+/* =========================
+   Graph view (read-only)
+   - node color/size by degree
+   - labels appear when zoomed in
+   ========================= */
 
-const edges = new vis.DataSet((GRAPH.links || []).map(e => ({
-  from: e.source,
-  to: e.target
-})));
+/* ===== data ===== */
+const rawNodes = GRAPH.nodes || [];
+const rawEdges = (GRAPH.links || []).map(e => ({ from: e.source, to: e.target }));
 
-const container = document.getElementById('graph');
-const network = new vis.Network(container, { nodes, edges }, {
-  nodes: { shape: 'dot', size: 12, font: { size: 14 } },
-  interaction: { hover: true },
-  physics: { stabilization: true }
+/* ===== degree (in + out) ===== */
+const degree = Object.create(null);
+rawNodes.forEach(n => { degree[n.id] = 0; });
+rawEdges.forEach(e => {
+  if (degree[e.from] !== undefined) degree[e.from]++;
+  if (degree[e.to]   !== undefined) degree[e.to]++;
 });
 
-network.on('doubleClick', (params) => {
+const degrees = rawNodes.map(n => degree[n.id] || 0);
+const maxDeg = Math.max(0, ...degrees);
+
+/* ===== thresholds (tune these) ===== */
+// Hubs = higher-degree nodes; this is used for color emphasis + earlier label reveal.
+const hubDeg = Math.max(3, Math.ceil(maxDeg * 0.30));
+
+/* ===== helpers ===== */
+function clamp(x, a, b) { return Math.max(a, Math.min(b, x)); }
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+function sizeByDeg(d) {
+  // Make small degrees visibly different.
+  if (d <= 0) return 6;   // isolated
+  if (d === 1) return 9;  // 1 link
+  if (d === 2) return 12; // 2 links
+  // 3+ grow slowly + cap
+  const base = 11;
+  const k = 1.6;
+  const cap = 15;
+  return Math.min(cap, base + Math.log1p(d - 2) * k);
+}
+
+
+function roleColor(d) {
+  // isolated red, hub orange, mid green, leaf dark gray
+  if (d === 0) return { bg: '#e74c3c', border: '#e74c3c' };
+  if (d >= hubDeg) return { bg: '#d97706', border: '#92400e' };
+  if (d >= 2) return { bg: '#10b981', border: '#0f766e' };
+  return { bg: '#374151', border: '#111827' };
+}
+
+/* ===== build datasets ===== */
+const nodes = new vis.DataSet(
+  rawNodes.map(n => {
+    const d = degree[n.id] || 0;
+    const c = roleColor(d);
+    return {
+      id: n.id,
+      label: n.label,
+      url: n.url,
+//      value: d,
+      size: sizeByDeg(d),
+      color: {
+        background: c.bg,
+        border: c.border,
+        highlight: { background: c.bg, border: '#000000' }
+      },
+      // Start with labels hidden; zoom handler will set real sizes.
+      font: { size: 0, face: 'system-ui' }
+    };
+  })
+);
+
+const edges = new vis.DataSet(
+  rawEdges.map(e => ({
+    from: e.from,
+    to: e.to
+  }))
+);
+
+/* ===== render ===== */
+const container = document.getElementById('graph');
+const network = new vis.Network(container, { nodes, edges }, {
+  nodes: {
+    shape: 'dot'
+  },
+  edges: {
+    color: { color: '#94a3b8', highlight: '#64748b' },
+    width: 1,
+    smooth: { type: 'continuous' }
+  },
+  interaction: {
+    hover: true,
+    tooltipDelay: 200,
+    multiselect: false
+  },
+  physics: {
+    stabilization: { iterations: 200 },
+    barnesHut: {
+      gravitationalConstant: -1200,
+      centralGravity: 0.10,
+      springLength: 90,
+      springConstant: 0.04,
+      damping: 0.12,
+      avoidOverlap: 0.60
+    }
+  }
+});
+
+/* ===== zoom-dependent labels =====
+   Behavior:
+   - when zoomed out: labels hidden
+   - zoom in: labels gradually appear
+   - hubs appear earlier + larger
+*/
+const LABEL_SHOW_SCALE = 0.75;  // below: hide most labels
+const LABEL_FULL_SCALE = 0.9;  // above: normal label sizes
+
+const FONT_LEAF = 12;
+const FONT_MID  = 13;
+const FONT_HUB  = 18;
+
+function desiredFontSize(d, isHub, scale) {
+  // hubs show earlier
+  const showAt = isHub ? (LABEL_SHOW_SCALE * 0.75) : LABEL_SHOW_SCALE;
+  const fullAt = isHub ? (LABEL_FULL_SCALE * 0.85) : LABEL_FULL_SCALE;
+
+  if (scale <= showAt) return 0;
+  const t = clamp((scale - showAt) / (fullAt - showAt), 0, 1);
+
+  let base;
+  if (isHub) base = FONT_HUB;
+  else if (d >= 2) base = FONT_MID;
+  else base = FONT_LEAF;
+
+  return Math.round(lerp(0, base, t));
+}
+
+function applyZoomLabels() {
+  const scale = network.getScale();
+  const updates = rawNodes.map(n => {
+    const d = degree[n.id] || 0;
+    const isHub = d >= hubDeg;
+    const fs = desiredFontSize(d, isHub, scale);
+    return { id: n.id, font: { size: fs, face: 'system-ui' } };
+  });
+  nodes.update(updates);
+}
+
+applyZoomLabels();
+network.on('zoom', applyZoomLabels);
+
+/* ===== navigation (read-only) ===== */
+network.on('doubleClick', params => {
   if (!params.nodes || params.nodes.length === 0) return;
   const id = params.nodes[0];
   const n = nodes.get(id);
