@@ -524,32 +524,54 @@ const network = new vis.Network(container, { nodes, edges }, {
   }
 });
 
-/* ===== zoom-dependent labels =====
-   Behavior:
-   - when zoomed out: labels hidden
-   - zoom in: labels gradually appear
-   - hubs appear earlier + larger
+/* ===== zoom-dependent labels (degree-aware) =====
+   - zoom out: low-degree labels disappear first
+   - zoom in : high-degree labels appear first
 */
-const LABEL_SHOW_SCALE = 0.75;  // below: hide most labels
-const LABEL_FULL_SCALE = 0.9;  // above: normal label sizes
 
+// Global base scales (tune)
+const LABEL_SHOW_BASE = 0.65;  // baseline 'start showing' for mid nodes
+const LABEL_FULL_BASE = 1.45;  // baseline 'fully visible' for mid nodes
+
+// Font sizes at FULL visibility
 const FONT_LEAF = 12;
 const FONT_MID  = 13;
-const FONT_HUB  = 18;
+const FONT_HUB  = 16;
 
-function desiredFontSize(d, isHub, scale) {
-  // hubs show earlier
-  const showAt = isHub ? (LABEL_SHOW_SCALE * 0.75) : LABEL_SHOW_SCALE;
-  const fullAt = isHub ? (LABEL_FULL_SCALE * 0.85) : LABEL_FULL_SCALE;
+// How strongly degree affects label timing (tune)
+const DEG_ALPHA = 0.22;  // bigger => high-degree appears much earlier
+const DEG_BETA  = 0.14;  // bigger => full visibility comes earlier too
+
+function clamp(x, a, b) { return Math.max(a, Math.min(b, x)); }
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+function baseFontByDegree(d) {
+  if (d >= hubDeg) return FONT_HUB;
+  if (d >= 2) return FONT_MID;
+  return FONT_LEAF;
+}
+
+function showScaleByDegree(d) {
+  // Higher degree => smaller threshold => shows earlier when zooming in
+  // log1p compresses extremes; maxDeg normalizes
+  const norm = maxDeg > 0 ? (Math.log1p(d) / Math.log1p(maxDeg)) : 0;
+  return LABEL_SHOW_BASE - DEG_ALPHA * norm;
+}
+
+function fullScaleByDegree(d) {
+  const norm = maxDeg > 0 ? (Math.log1p(d) / Math.log1p(maxDeg)) : 0;
+  // ensure full >= show + some gap
+  return (LABEL_FULL_BASE - DEG_BETA * norm);
+}
+
+function desiredFontSize(d, scale) {
+  const showAt = showScaleByDegree(d);
+  const fullAt = Math.max(showAt + 0.18, fullScaleByDegree(d)); // keep gap
 
   if (scale <= showAt) return 0;
   const t = clamp((scale - showAt) / (fullAt - showAt), 0, 1);
 
-  let base;
-  if (isHub) base = FONT_HUB;
-  else if (d >= 2) base = FONT_MID;
-  else base = FONT_LEAF;
-
+  const base = baseFontByDegree(d);
   return Math.round(lerp(0, base, t));
 }
 
@@ -557,12 +579,14 @@ function applyZoomLabels() {
   const scale = network.getScale();
   const updates = rawNodes.map(n => {
     const d = degree[n.id] || 0;
-    const isHub = d >= hubDeg;
-    const fs = desiredFontSize(d, isHub, scale);
+    const fs = desiredFontSize(d, scale);
     return { id: n.id, font: { size: fs, face: 'system-ui' } };
   });
   nodes.update(updates);
 }
+
+
+
 
 applyZoomLabels();
 network.on('zoom', applyZoomLabels);
