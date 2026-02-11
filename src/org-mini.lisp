@@ -176,7 +176,7 @@ Notes:
           (3 (list 'h3 title)))))))
 
 ;;; ------------------------------------------------------------
-;;; Org link [[...]] -> (img (:src ... :alt ...))
+;;; Org link [[...]] -> (img ...) OR (a ...)
 ;;; ------------------------------------------------------------
 
 (defun %normalize-org-url (url)
@@ -185,10 +185,57 @@ Notes:
         (subseq u 5)
         u)))
 
+(defun %string-ends-with-ci-p (s suffix)
+  (let* ((s (%trim s))
+         (suffix (%trim suffix))
+         (n (length s))
+         (m (length suffix)))
+    (and (<= m n)
+         (string-equal suffix (subseq s (- n m) n)))))
+
+(defun %image-path-p (path)
+  (let ((p (string-downcase (%trim path))))
+    (or (%string-ends-with-ci-p p ".png")
+        (%string-ends-with-ci-p p ".jpg")
+        (%string-ends-with-ci-p p ".jpeg")
+        (%string-ends-with-ci-p p ".gif")
+        (%string-ends-with-ci-p p ".webp")
+        (%string-ends-with-ci-p p ".svg"))))
+
+(defun %href-from-org-url (raw-url)
+  "Map org url to href.
+- post:slug        -> /post/slug
+- file:foo.org     -> /post/foo
+- file:images/x.png-> images/x.png  (will be treated as img elsewhere)
+- http(s)://...    -> itself
+- otherwise        -> raw-url (as-is)"
+  (let* ((u (%trim raw-url)))
+    (cond
+      ;; [[post:org-test][Org Test]] -> /post/org-test
+      ((%starts-with-ci-p u "post:")
+       (format nil "/post/~a" (%trim (subseq u 5))))
+
+      ;; [[file:org-test.org][Org Test]] -> /post/org-test
+      ((%starts-with-ci-p u "file:")
+       (let* ((p (%trim (subseq u 5))))
+         (if (%string-ends-with-ci-p p ".org")
+             (format nil "/post/~a" (pathname-name p))
+             p)))
+
+      ((or (%starts-with-ci-p u "http://")
+           (%starts-with-ci-p u "https://"))
+       u)
+
+      (t u))))
+
+
 (defun %parse-org-link (s start)
   "Parse org link beginning at START (at '[[').
 Return (values node end-index) where end-index is index after closing ']]',
-or NIL if not valid."
+or NIL if not valid.
+
+- If url points to an image -> (img (:src ... :alt ...))
+- Else -> (a (:href ...) \"desc\")"
   (let ((n (length s)))
     (when (and (<= (+ start 2) n)
                (char= (char s start) #\[)
@@ -196,13 +243,25 @@ or NIL if not valid."
       (let ((close (search "]]" s :start2 (+ start 2))))
         (when close
           (let* ((inner (subseq s (+ start 2) close))
-                 ;; inner can be: "file:a.png" or "file:a.png][alt text"
+                 ;; inner can be: "file:a.png" or "post:slug][Desc"
                  (sep (search "][" inner))
                  (raw-url (if sep (subseq inner 0 sep) inner))
-                 (alt (if sep (subseq inner (+ sep 2)) ""))
+                 (desc (if sep (subseq inner (+ sep 2)) ""))
+                 ;; for image src rendering: strip file:
                  (src (%normalize-org-url raw-url)))
-            (values (list 'img (list :src src :alt alt))
-                    (+ close 2))))))))
+
+            (cond
+              ;; If it's an image path -> keep old behavior
+              ((%image-path-p src)
+               (values (list 'img (list :src src :alt desc))
+                       (+ close 2)))
+
+              ;; Otherwise export as a normal link node
+              (t
+               (let* ((href (%href-from-org-url raw-url))
+                      (label (%trim (if (> (length (%trim desc)) 0) desc raw-url))))
+                 (values (list 'a (list :href href) label)
+                         (+ close 2)))))))))))
 
 ;;; ------------------------------------------------------------
 ;;; Inline parsing:
