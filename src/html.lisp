@@ -48,10 +48,20 @@ img{max-width:100%;height:auto;border-radius:10px}
     (write-string "<nav style=\"margin-top:10px;\">" out)
     (write-string "<a href=\"/\">Home</a>" out)
     (write-string "<a href=\"/archive\">Archive</a>" out)
+    (write-string "<a href=\"/search\">Search</a>" out)
     (write-string "<a href=\"/graph\">Graph</a>" out)
     (write-string "<a href=\"/about\">About</a>" out)
-    (write-string "</nav></header><hr/>" out)
 
+
+
+    ;; small search box
+    (write-string "<form action=\"/search\" method=\"get\" style=\"display:inline-block;margin-left:10px;\">" out)
+    (write-string "<input name=\"q\" placeholder=\"Search...\" style=\"padding:6px 8px;border:1px solid #ddd;border-radius:10px;\"/>" out)
+    (write-string "<button type=\"submit\" style=\"padding:6px 10px;border:1px solid #ddd;border-radius:10px;background:white;\">Go</button>" out)
+    (write-string "</form>" out)
+
+    (write-string "</nav></header><hr/>" out)
+    
     (write-string body-html out)
 
     ;; Render KaTeX placeholders

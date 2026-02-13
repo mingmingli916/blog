@@ -20,8 +20,7 @@
 ;;; Pages (Level 2)
 ;;; ------------------------------
 
-(defun all-posts-list ()
-  (loop for p being the hash-values of *posts* collect p))
+
 
 (defun sort-posts-by-updated-desc (posts)
   (sort posts #'> :key (lambda (p) (or (getf p :updated-at) 0))))
@@ -262,20 +261,7 @@
         (#\Tab (write-string "\\t" out))
         (t (write-char ch out))))))
 
-;; (defun parse-slug-from-href (href)
-;;   "Support:
-;; - /post/<slug>
-;; - /post?slug=<slug>
-;; Return slug string or NIL."
-;;   (when (and href (stringp href))
-;;     (cond
-;;       ((string-prefix-p "/post/" href)
-;;        (let ((slug (subseq href (length "/post/"))))
-;;          (and (plusp (length slug)) slug)))
-;;       ((string-prefix-p "/post?slug=" href)
-;;        (let ((slug (subseq href (length "/post?slug="))))
-;;          (and (plusp (length slug)) slug)))
-;;       (t nil))))
+
 
 (defun parse-slug-from-href (href)
   "Extract post slug from href. Supports:
@@ -600,8 +586,7 @@ network.on('doubleClick', params => {
 });
 " out)
 
-             (write-string "</script>" out))
-           :subtitle "/graph"))))
+             (write-string "</script>" out))))))
 
 
 (define-easy-handler (graph-debug-handler :uri "/graph/debug") ()
@@ -612,3 +597,67 @@ network.on('doubleClick', params => {
          (let* ((slug (getf p :slug))
                 (targets (collect-post-link-slugs (getf p :content))))
            (format out "~&~a -> ~s~%" slug targets)))))))
+
+
+
+;;; ------------------------------
+;;; Search
+;;; ------------------------------
+(defun %snippet (text &key (center "") (radius 140))
+  "Return a small snippet from TEXT. If CENTER is found, center around it."
+  (let* ((text (or text ""))
+         (center (or center "")))
+    (cond
+      ((= (length text) 0) "")
+      ((or (null center) (= (length center) 0))
+       (if (> (length text) (* 2 radius))
+           (concatenate 'string (subseq text 0 (* 2 radius)) "...")
+           text))
+      (t
+       (let* ((pos (search center text :test #'char-equal))
+              (pos (or pos 0))
+              (start (max 0 (- pos radius)))
+              (end (min (length text) (+ pos radius (length center)))))
+         (concatenate 'string
+                      (if (> start 0) "..." "")
+                      (subseq text start end)
+                      (if (< end (length text)) "..." "")))))))
+
+
+
+
+
+(hunchentoot:define-easy-handler (search-handler :uri "/search") (q)
+  (let* ((q (trim-string (or q "")))
+         (results (if (> (length q) 0) (search-posts q :limit 60) '())))
+    (respond-html
+     (page "Search"
+           (with-output-to-string (out)
+             (cond
+               ((= (length q) 0)
+                (write-string "<p class=\"muted\">Use the search box in the top navigation.</p>" out)
+                (write-string "<p class=\"muted\">Search covers title, slug, category, tags, and body text.</p>" out))
+
+               ((null results)
+                (format out "<p class=\"muted\">No results for <code>~a</code>.</p>" (html-escape q)))
+
+               (t
+                (format out "<p class=\"muted\">~a result(s) for <code>~a</code>.</p>"
+                        (length results) (html-escape q))
+                (write-string "<ol class=\"postlist\">" out)
+                (dolist (pair results)
+                  (let* ((p (car pair))
+                         (score (cdr pair))
+                         (slug (getf p :slug))
+                         (title (or (getf p :title) slug))
+                         (updated (getf p :updated-at)))
+                    (format out
+                            "<li><a href=\"~a\">~a</a><div class=\"meta\">Score: ~a · Updated: ~a · Slug: ~a</div></li>~%"
+                            (url-for-post slug)
+                            (html-escape title)
+                            score
+                            (html-escape (ut->ymdhm updated))
+                            (html-escape slug))))
+                (write-string "</ol>" out)))))
+           ;; 注意：这里不要再传 :subtitle "/search"
+           )))
