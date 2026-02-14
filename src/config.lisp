@@ -38,3 +38,31 @@
 (defparameter *posts-dir*
   (ensure-dir (merge-pathnames "posts/" *data-dir*))
   "Where posts are stored as *.sexp files.")
+
+
+
+
+;;; ------------------------------
+;;; Site metadata (used by RSS)
+;;; ------------------------------
+(defparameter *site-title* "Blog")
+(defparameter *site-subtitle* "A long-term technical notebook")
+(defparameter *site-description* "A long-term technical notebook")
+
+(defun %strip-trailing-slash (s)
+  (let ((s (or s "")))
+    (if (and (> (length s)  1)
+             (char= (char s (1- (length s))) #\/))
+        (subseq s 0 (1- (length s)))
+        s)))
+
+(defparameter *site-url*
+  (let ((env (getenv "BLOG_SITE_URL")))
+    (cond
+      ((and env (> (length env) 0)) (%strip-trailing-slash env))
+      (t (format nil "http://127.0.0.1:~a" *port*))))
+  "Canonical site URL (no trailing slash). Override via BLOG_SITE_URL")
+
+
+(defparameter *rss-path* "/rss.xml")
+(defparameter *rss-full-path* "/rss-full.xml")

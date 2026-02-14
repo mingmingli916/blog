@@ -25,8 +25,17 @@
     (format out
      "<script defer src=\"https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js\"></script>~%")
 
+
+    ;; RSS autodiscovery
+    (format out "<link rel=\"alternate\" type=\"application/rss+xml\" title=\"~a\" href=\"~a\">~%"
+            (html-escape *site-title*)
+            (html-escape *rss-path*))
+    (format out "<link rel=\"alternate\" type=\"application/rss+xml\" title=\"~a (full)\" href=\"~a\">~%"
+            (html-escape *site-title*)
+            (html-escape *rss-full-path*))
+    
     (format out
-     "<style>
+            "<style>
 body{max-width:720px;margin:40px auto;padding:0 16px;line-height:1.6;font-family:ui-sans-serif,system-ui, -apple-system, Segoe UI, Roboto;}
 header{margin-bottom:18px}
 nav a{margin-right:12px}
@@ -52,7 +61,10 @@ img{max-width:100%;height:auto;border-radius:10px}
     (write-string "<a href=\"/graph\">Graph</a>" out)
     (write-string "<a href=\"/about\">About</a>" out)
 
-
+    ;; RSS
+    (format out "<a href=\"~a\">RSS</a>" (html-escape *rss-path*))
+    (format out "<a href=\"~a\">RSS (Full)</a>" (html-escape *rss-full-path*))
+    
 
     ;; small search box
     (write-string "<form action=\"/search\" method=\"get\" style=\"display:inline-block;margin-left:10px;\">" out)

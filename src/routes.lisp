@@ -289,15 +289,7 @@ Return slug string or NIL."
             (subseq href start end)))))))
 
 
-;; (defun node-a-href (node)
-;;   "If node is (a (:href ...) ...), return href string or NIL."
-;;   (when (and (consp node) (symbolp (car node)))
-;;     (let* ((tag (string-downcase (symbol-name (car node))))
-;;            (rest (cdr node))
-;;            (has-attrs (and rest (consp (car rest)) (keywordp (caar rest))))
-;;            (attrs (and has-attrs (car rest))))
-;;       (when (and (string= tag "a") attrs)
-;;         (getf attrs :href)))))
+
 
 (defun node-a-href (node)
   "If node is an <a> sexp, return href string or NIL.
@@ -661,3 +653,231 @@ network.on('doubleClick', params => {
                 (write-string "</ol>" out)))))
            ;; 注意：这里不要再传 :subtitle "/search"
            )))
+
+
+
+;;; ------------------------------
+;;; RSS (text + full HTML)
+;;; ------------------------------
+(defun respond-xml (xml &optional (code 200))
+  (setf (return-code*) code
+        (content-type*) "application/rss+xml; charset=utf-8")
+  xml)
+
+(defun xml-escape (s)
+  "Escape text for XML element content."
+  (let ((s (or s "")))
+    (with-output-to-string (out)
+      (loop for ch across s do
+        (case ch
+          (#\< (write-string "&lt;" out))
+          (#\> (write-string "&gt;" out))
+          (#\& (write-string "&amp;" out))
+          (#\" (write-string "&quot;" out))
+          (#\' (write-string "&apos;" out))
+          (t (write-char ch out)))))))
+
+(defun absolute-url (path)
+  "Make an absolute URL from a site-relative PATH (string)."
+  (let ((base (or *site-url* "")))
+    (cond
+      ((or (null path) (= (length path) 0)) base)
+      ((and (>= (length path) 4)
+            (or (string= "http" (subseq path 0 4))
+                (string= "HTTP" (subseq path 0 4))))
+       path)
+      ((char= (char path 0) #\/)
+       (format nil "~a~a" base path))
+      (t
+       (format nil "~a/~a" base path)))))
+
+(defun %squeeze-ws (s)
+  (let ((s (or s "")))
+    (with-output-to-string (out)
+      (let ((prev-ws nil))
+        (loop for ch across s do
+          (if (member ch '(#\Space #\Tab #\Newline #\Return))
+              (unless prev-ws
+                (write-char #\Space out)
+                (setf prev-ws t))
+              (progn
+                (write-char ch out)
+                (setf prev-ws nil))))))))
+
+(defun %trim (s)
+  (string-trim '(#\Space #\Tab #\Newline #\Return) (or s "")))
+
+(defun %truncate (s n)
+  (let ((s (or s "")))
+    (if (<= (length s) n)
+        s
+        (concatenate 'string (subseq s 0 n) "…"))))
+
+
+(defun node->plain-text (node)
+  "Best-effort convert a rendered SEXP node into human readable plain text."
+  (cond
+    ((null node) "")
+    ((stringp node) node)
+    ;; Some nodes look like: (BLOG::P "text") or (BLOG::H2 "Title") etc.
+    ((and (consp node) (symbolp (car node)))
+     (let* ((tag (car node))
+            (args (cdr node)))
+       (cond
+         ;; headings / paragraph / list items: join children
+         ((member tag '(BLOG::H1 BLOG::H2 BLOG::H3 BLOG::H4 BLOG::H5 BLOG::H6
+                        BLOG::P BLOG::LI BLOG::BLOCKQUOTE)
+                  :test #'eq)
+          (with-output-to-string (out)
+            (dolist (a args)
+              (let ((text (node->plain-text a)))
+                (when (> (length text) 0)
+                  (write-string text out)
+                  (write-char #\Space out))))))
+         ;; unordered/ordered lists: join items
+         ((member tag '(BLOG::UL BLOG::OL) :test #'eq)
+          (with-output-to-string (out)
+            (dolist (a args)
+              (let ((text (node->plain-text a)))
+                (when (> (length text) 0)
+                  (write-string text out)
+                  (write-char #\Newline out))))))
+         ;; code blocks: include content
+         ((eq tag 'BLOG::SRC)
+          ;; (BLOG::SRC (:LANG "lisp") "code...")
+          (let ((code (car (last args))))
+            (format nil "~%~a~%~%" (or code ""))))
+         ;; math: include tex
+         ((eq tag 'BLOG::MATH)
+          (let ((tex (car (last args))))
+            (format nil "~%[math] ~a~%~%" (or tex ""))))
+         ;; image: keep alt if any
+         ((eq tag 'BLOG::IMG)
+          ;; (BLOG::IMG (:SRC "..." :ALT "Alt"))
+          (let* ((plist (car args))
+                 (alt (when (and (consp plist))
+                        (getf plist :ALT))))
+            (if (and alt (> (length alt) 0))
+                (format nil "[image] ~a" alt)
+                "[image]")))
+         ;; links: keep text content if present
+         ((eq tag 'BLOG::A)
+          (with-output-to-string (out)
+            (dolist (a args)
+              (let ((text (node->plain-text a)))
+                (when (> (length text) 0)
+                  (write-string text out)
+                  (write-char #\Space out))))))
+         ;; default: flatten children
+         (t
+          (with-output-to-string (out)
+            (dolist (a args)
+              (let ((text (node->plain-text a)))
+                (when (> (length text) 0)
+                  (write-string text out)
+                  (write-char #\Space out)))))))))
+    ;; other lists: flatten
+    ((consp node)
+     (with-output-to-string (out)
+       (dolist (a node)
+         (let ((text (node->plain-text a)))
+           (when (> (length text) 0)
+             (write-string text out)
+             (write-char #\Space out))))))
+    (t "")))
+
+(defun post->plain-summary (post &key (limit 600))
+  (let* ((content (getf post :content))
+         (txt (%trim (%squeeze-ws (node->plain-text content)))))
+    (%truncate txt limit)))
+
+(defun %cdata-safe (s)
+  "Ensure CDATA does not contain the terminator ']]>'."
+  (let ((s (or s "")))
+    ;; split occurrences of ]]>
+    (with-output-to-string (out)
+      (loop with i = 0
+            for pos = (search "]]>" s :start2 i)
+            do (if pos
+                   (progn
+                     (write-string (subseq s i pos) out)
+                     (write-string "]]]]><![CDATA[>" out)
+                     (setf i (+ pos 3)))
+                   (progn
+                     (write-string (subseq s i) out)
+                     (return)))))))
+
+(defun post->rss-item-text (post)
+  "RSS item for the plain-text feed."
+  (let* ((slug (getf post :slug))
+         (title (or (getf post :title) slug))
+         (ut (or (getf post :updated-at) (getf post :created-at) 0))
+         (link (absolute-url (url-for-post slug)))
+         (guid link)
+         (summary (post->plain-summary post :limit 600)))
+    (with-output-to-string (out)
+      (write-string "<item>\n" out)
+      (format out "<title>~a</title>\n" (xml-escape title))
+      (format out "<link>~a</link>\n" (xml-escape link))
+      (format out "<guid isPermaLink=\"true\">~a</guid>\n" (xml-escape guid))
+      (format out "<pubDate>~a</pubDate>\n" (xml-escape (ut->rfc822 ut)))
+      (format out "<description>~a</description>\n" (xml-escape summary))
+      (write-string "</item>\n" out))))
+
+(defun post->rss-item-html (post)
+  "RSS item for the full/HTML feed. Uses content:encoded with CDATA."
+  (let* ((slug (getf post :slug))
+         (title (or (getf post :title) slug))
+         (ut (or (getf post :updated-at) (getf post :created-at) 0))
+         (link (absolute-url (url-for-post slug)))
+         (guid link)
+         (summary (post->plain-summary post :limit 300))
+         ;; IMPORTANT: reuse your existing renderer (same as post page body)
+         (html (or (render-post-body post) "")))
+    (with-output-to-string (out)
+      (write-string "<item>\n" out)
+      (format out "<title>~a</title>\n" (xml-escape title))
+      (format out "<link>~a</link>\n" (xml-escape link))
+      (format out "<guid isPermaLink=\"true\">~a</guid>\n" (xml-escape guid))
+      (format out "<pubDate>~a</pubDate>\n" (xml-escape (ut->rfc822 ut)))
+      ;; keep a short plain-text description for compatibility
+      (format out "<description>~a</description>\n" (xml-escape summary))
+      ;; full HTML payload
+      (format out "<content:encoded><![CDATA[~a]]></content:encoded>\n"
+              (%cdata-safe html))
+      (write-string "</item>\n" out))))
+
+
+(defun rss-feed (posts &key (limit 30) (full-html nil))
+  (let* ((posts (sort-posts-by-updated-desc posts))
+         (posts (subseq posts 0 (min limit (length posts))))
+         (feed-link (absolute-url (if full-html *rss-full-path* *rss-path*)))
+         (home-link (absolute-url "/"))
+         (title (or *site-title* "Blog"))
+         (desc (or *site-description* "")))
+    (with-output-to-string (out)
+      (if full-html
+          (write-string "<rss version=\"2.0\" xmlns:content=\"http://purl.org/rss/1.0/modules/content/\">\n" out)
+          (write-string "<rss version=\"2.0\">\n" out))
+      (write-string "<channel>\n" out)
+      (format out "<title>~a</title>\n" (xml-escape title))
+      (format out "<link>~a</link>\n" (xml-escape home-link))
+      (format out "<description>~a</description>\n" (xml-escape desc))
+      (format out "<language>en</language>\n")
+      (format out "<generator>Common Lisp mini blog</generator>\n")
+      (format out "<docs>https://www.rssboard.org/rss-specification</docs>\n")
+      (format out "<atom:link href=\"~a\" rel=\"self\" type=\"application/rss+xml\" xmlns:atom=\"http://www.w3.org/2005/Atom\" />\n"
+              (xml-escape feed-link))
+      (dolist (p posts)
+        (write-string
+         (if full-html
+             (post->rss-item-html p)
+             (post->rss-item-text p))
+         out))
+      (write-string "</channel>\n</rss>\n" out))))
+
+(define-easy-handler (rss-handler :uri "/rss.xml") ()
+  (respond-xml (rss-feed (all-posts-list) :full-html nil)))
+
+(define-easy-handler (rss-full-handler :uri "/rss-full.xml") ()
+  (respond-xml (rss-feed (all-posts-list) :full-html t)))
