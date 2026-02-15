@@ -93,11 +93,7 @@
         (format out "#+DATE: ~a~%" (iso-date))
         (format out "#+CATEGORY: ~a~%" "")
         (format out "#+TAGS: ~a~%" "")
-        (format out "#+OPTIONS: toc:nil num:nil~%~%")
-        (format out "* ~a~%~%" title)
-        (format out "Write here.~%~%")
-        (format out "** Code~%~%")
-        (format out "#+begin_src lisp~%(+ 1 2)~%#+end_src~%"))
+        (format out "#+OPTIONS: toc:nil num:nil~%~%"))
 
       (info "Created org: ~A" (namestring path))
       (info "Next: edit it, then compile:")
