@@ -50,7 +50,7 @@
 
                                ;; category segment
                                (if cat
-                                   (format nil " · Cagetory: <a href=\"~a\">~a</a>"
+                                   (format nil " · Catetory: <a href=\"~a\">~a</a>"
                                            (html-escape (url-for-category cat))
                                            (html-escape cat))
                                    "")

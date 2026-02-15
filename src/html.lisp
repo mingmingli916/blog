@@ -27,9 +27,6 @@
 
 
     ;; RSS autodiscovery
-    (format out "<link rel=\"alternate\" type=\"application/rss+xml\" title=\"~a\" href=\"~a\">~%"
-            (html-escape *site-title*)
-            (html-escape *rss-path*))
     (format out "<link rel=\"alternate\" type=\"application/rss+xml\" title=\"~a (full)\" href=\"~a\">~%"
             (html-escape *site-title*)
             (html-escape *rss-full-path*))
@@ -47,6 +44,17 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
 hr{border:none;border-top:1px solid #eee;margin:18px 0}
 img{max-width:100%;height:auto;border-radius:10px}
 .katex-block{margin:12px 0}
+footer {
+  margin-top: 100px;
+  padding: 40px 0 20px 0;
+  text-align: center;
+  font-size: 13px;
+  opacity: .55;
+}
+footer a {
+  text-decoration: none;
+  color: inherit;
+}
 </style>~%")
 
     (write-string "</head><body>" out)
@@ -59,10 +67,6 @@ img{max-width:100%;height:auto;border-radius:10px}
     (write-string "<a href=\"/archive\">Archive</a>" out)
     (write-string "<a href=\"/search\">Search</a>" out)
     (write-string "<a href=\"/graph\">Graph</a>" out)
-    ;; RSS
-    (format out "<a href=\"~a\">RSS</a>" (html-escape *rss-path*))
-    (format out "<a href=\"~a\">RSS (Full)</a>" (html-escape *rss-full-path*))
-
     (write-string "<a href=\"/about\">About</a>" out)
 
     
@@ -76,6 +80,16 @@ img{max-width:100%;height:auto;border-radius:10px}
     (write-string "</nav></header><hr/>" out)
     
     (write-string body-html out)
+    ;; Minimal footer (copyright + RSS)
+    (let* ((year (nth-value 5 (decode-universal-time (get-universal-time))))
+           (author (if (boundp '*site-author*)
+                       (symbol-value '*site-author*)
+                       "Mingming Li")))
+      (format out "<footer>© ~a ~a · <a href=\"~a\">RSS</a></footer>"
+              year
+              (html-escape author)
+              (html-escape *rss-full-path*)))    
+
 
     ;; Render KaTeX placeholders
     (write-string

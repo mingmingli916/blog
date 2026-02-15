@@ -48,6 +48,7 @@
 (defparameter *site-title* "Blog")
 (defparameter *site-subtitle* "A long-term technical notebook")
 (defparameter *site-description* "A long-term technical notebook")
+(defparameter *site-author* "Mingming Li")
 
 (defun %strip-trailing-slash (s)
   (let ((s (or s "")))
