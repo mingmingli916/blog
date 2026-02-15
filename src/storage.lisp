@@ -2,8 +2,11 @@
 
 (defvar *posts* (make-hash-table :test 'equal)) ; slug -> post plist
 
+
+
 (defun all-posts-list ()
   "Return all posts currently loaded in memory."
+  (maybe-reload-posts :min-interval-sec 1)
   (loop for p being the hash-values of *posts* collect p))
 
 (defun ensure-posts-dir ()
@@ -282,6 +285,9 @@ We also keep the raw trimmed query for substring matching."
                          :if-exists :supersede
                          :if-does-not-exist :create)
       (write post :stream out :pretty t :readably t)))
+  (setf (gethash (getf post :slug) *posts*) (normalize-post post))
+  (setf *posts-last-mtime* (max *posts-last-mtime*
+                                (or (file-write-date (post-path (getf post :slug))) 0)))
   t)
 
 
@@ -308,6 +314,7 @@ We also keep the raw trimmed query for substring matching."
              (declare (ignore _slug))
              (save-post-to-disk post))
            *posts*)
+  (setf *posts-last-mtime* (posts-max-mtime))
   (hash-table-count *posts*))
 
 
@@ -323,3 +330,27 @@ We also keep the raw trimmed query for substring matching."
   (or (gethash slug *posts*)
       (probe-file (post-path slug))))
 
+
+;;; ------------------------------
+;;; Reload posts when needed
+;;; ------------------------------
+(defvar *posts-last-mtime* 0)           ; 最近一次已加载的 posts 文件最大 mtime
+(defvar *posts-last-check-ut* 0)        ; 上次检查时间（避免每个请求都扫目录）
+
+(defun posts-max-mtime ()
+  "Return max file-write-date among *.sexp under *posts-dir* (or 0)."
+  (ensure-posts-dir)
+  (let ((mx 0))
+    (dolist (file (directory (merge-pathnames "*.sexp" *posts-dir*)) mx)
+      (let ((date (or (file-write-date file) 0)))
+        (when (> date mx) (setf mx date))))))
+
+(defun maybe-reload-posts (&key (min-interval-sec 1))
+  "Reload posts if disk changed. Throttle directory scan by MIN-INTERVAL-SEC."
+  (let ((now (get-universal-time)))
+    (when (>= (- now *posts-last-check-ut*) min-interval-sec)
+      (setf *posts-last-check-ut* now)
+      (let ((mx (posts-max-mtime)))
+        (when (> mx *posts-last-mtime*)
+          (load-all-posts)
+          (setf *posts-last-mtime* mx))))))

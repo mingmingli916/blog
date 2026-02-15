@@ -59,11 +59,12 @@ img{max-width:100%;height:auto;border-radius:10px}
     (write-string "<a href=\"/archive\">Archive</a>" out)
     (write-string "<a href=\"/search\">Search</a>" out)
     (write-string "<a href=\"/graph\">Graph</a>" out)
-    (write-string "<a href=\"/about\">About</a>" out)
-
     ;; RSS
     (format out "<a href=\"~a\">RSS</a>" (html-escape *rss-path*))
     (format out "<a href=\"~a\">RSS (Full)</a>" (html-escape *rss-full-path*))
+
+    (write-string "<a href=\"/about\">About</a>" out)
+
     
 
     ;; small search box
