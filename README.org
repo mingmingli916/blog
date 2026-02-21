@@ -1,0 +1,72 @@
+* 项目结构
+
+- blog.asd 永远在项目根目录。
+- 源码永远在 src/。
+- 运行时可写数据（posts、db、cache）不要写入仓库目录，而是写进用户目录/系统数据目录。
+- content 目录是存放 post 源的。
+
+
+
+
+* DEPRECATED DSL/SEXP 规范
+文章 :content 里允许出现的节点
+
+- Headline：(h1 "...") (h2 "...") (h3 "...")
+- Paragraph（支持 inline 混排）：(p "text" (math (:mode "inline") "a^2") "more" (img (:src "x.png" :alt "x")) )
+- Code block：(src (:lang "python") "print(1)\n")
+- List：(ul (li ...) ...) + 新增 (ol ...)
+- Image：(img (:src "..." :alt "..."))
+- Math：(math (:mode "inline") "...") / (math (:mode "block") "...")
+
+
+
+* SEXP 规范
+
+** 顶层结构（固定）
+#+begin_src lisp
+(:SLUG "org-test"
+ :TITLE "Org Test"
+ :CREATED-AT 3979342800
+ :UPDATED-AT 3979345007
+ :CATEGORY "Test"
+ :TAGS ("lisp" "emacs")
+ :CONTENT (
+   (BLOG::H1 "Org Test")
+   (BLOG::P "Hello " (BLOG::A (:HREF "/post/abc") "abc") ".")
+   (BLOG::SRC (:LANG "lisp") "(+ 1 2)\n")
+   (BLOG::IMG (:SRC "images/a.png" :ALT ""))
+ ))
+#+end_src
+
+** 节点统一形态
+#+begin_src lisp
+(TAG [ATTRS] CHILD...)  
+#+end_src
+
+- ATTRS 可省略
+- ATTRS 是 plist
+- CHILD 可以是 string 或节点
+
+
+
+** 组件节点规则
+代码块
+#+begin_src lisp
+(BLOG::SRC (:LANG "lisp") "(+ 1 2)\n")
+#+end_src
+
+数学公式
+#+begin_src lisp
+(BLOG::MATH (:MODE "inline") "E=mc^2")
+(BLOG::MATH (:MODE "block") "\\frac{a}{b}")
+#+end_src
+
+
+图片
+#+begin_src lisp
+(BLOG::IMG (:SRC "images/a.png" :ALT ""))
+#+end_src
+* 渲染器
+渲染器要“傻”：只做结构判断 + 递归输出
+
+核心：识别节点是 string / list，list 的第二项是不是 plist。

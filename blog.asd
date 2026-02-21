@@ -13,7 +13,10 @@
      (:file "time")
      (:file "html")
      (:file "storage")
-     (:file "dsl")
+     (:module "dsl"
+      :components
+      (:file "post")
+      (:file "sexp->html"))
      (:file "render")
      (:file "routes")                   ;
      (:file "server")                   ; start/stop hunchentoot server

@@ -1,39 +1,6 @@
-(in-package :blog)
-
-(defmacro defpost (slug &key title category tags content)
-  "Define a post.
-Slug is permanent.
-If the post exists, we update title/content and bump updated-at (created-at stays)."
-  `(progn
-     (unless (safe-slug-p ,slug)
-       (error "Bad slug: ~S" ,slug))
-     (let* ((s ,slug)
-            (existing (find-post s))
-            (created (if existing (getf existing :created-at) (now-ut)))
-            (updated (now-ut))
-            (p (list :slug s
-                     :title ,title
-                     :category (normalize-category ,category)
-                     :tags (normalize-tags ,tags)
-                     :content ',content
-                     :created-at created
-                     :updated-at updated)))
-       (setf (gethash s *posts*) p)
-       (save-post-to-disk p)
-       p)))
-
-(defun touch-post (slug)
-  "Bump updated-at without changing content (useful if you edit file manually)."
-  (let ((p (find-post slug)))
-    (unless p (error "No such post: ~A" slug))
-    (setf (getf p :updated-at) (now-ut))
-    (setf (gethash slug *posts*) p)
-    (save-post-to-disk p)
-    p))
 
 
-
-;; ;;; Example posts 
+;;; Example posts 
 ;; (defpost "hello-lisp"
 ;;   :title "Write a blog with Common Lisp"
 ;;   :content
@@ -53,3 +20,82 @@ If the post exists, we update title/content and bump updated-at (created-at stay
 ;;   :content
 ;;   ((p "This is a minimal long-term blog system.")
 ;;    (p "Level 2 focuses on stability: slug + metadata + archive.")))
+
+
+;;; ------------------------------
+;;; Sexp -> HTML
+;;; ------------------------------
+(defun plistp (x)
+  (and (listp x)
+       (evenp (length x))
+       (loop for (k v) on x by #'cddr always (keywordp k))))
+
+
+(defun escape-html (s)
+  (with-output-to-string (out)
+    (loop for ch across (princ-to-string s) do
+      (write-string
+       (case ch
+         (#\< "&lt;")
+         (#\> "&gt;")
+         (#\& "&amp;")
+         (#\" "&quot;")
+         (t (string ch)))
+       out))))
+
+
+(defun tag->name (sym)
+  ;; BLOG::H1 -> "h1"
+  (string-downcase (symbol-name sym)))
+
+
+(defun kw->attr-name (k)
+  "Convert :CLASS -> \"class\" etc."
+  (string-downcase (subseq (symbol-name k) 1)))
+
+
+(defun render-attrs (attrs out)
+  (loop for (k v) on attrs by #'cddr do
+    (format out " ~a=\"~a\""
+            (string-downcase (subseq (symbol-name k) 1)) ; :CLASS -> "class"
+            (escape-html v))))
+
+
+(defun render-node (node out)
+  (cond
+    ((null node) nil)
+    ((stringp node) (write-string (escape-html node) out))
+    ((numberp node) (write-string (escape-html node) out))
+    ((and (consp node) (symbolp (car node)))
+     (let* ((tag (car node))
+            (rest (cdr node))
+            (attrs (when (and rest (plistp (car rest)))))
+            (kids (if attrs (cdr rest) rest)))
+       (format out "<~a" (tag->name tag))
+       (when attrs (render-attrs attrs out))
+       (write-string ">" out)
+       (dolist (k kids) (render-node k out))
+       (format out "</~a>" (tag->name tag))))
+    (t (write-string (escape-html node) out))))
+
+(defun render (ast)
+  (with-output-to-string (out)
+    (dolist (n ast) (render-node n out))))
+
+
+
+
+(defun h (tag &rest xs)
+  ;; (h 'BLOG::P "hi")  -> (BLOG::P "hi")
+  ;; (h 'BLOG::A :href "/x" "x") -> (BLOG::A (:HREF "/x") "x")
+  (labels ((kw? (x) (and (keywordp x) (not (null x)))))
+    (if (and xs (kw? (first xs)))
+        (let ((attrs '())
+              (kids '()))
+          (loop while (and xs (kw? (first xs))) do
+            (let ((k (pop xs)) (v (pop xs)))
+              (setf attrs (nconc attrs (list k v)))))
+          (setf kids xs)
+          (cons tag (cons attrs kids)))
+        (cons tag xs))))
+
