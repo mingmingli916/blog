@@ -13,8 +13,16 @@
   nil)
 
 
+(defparameter *blog-root*
+  (asdf:system-source-directory :blog))
+
+
 (defun ensure-dir (path)
   (ensure-directories-exist path))
+
+(defparameter *posts-source-dir*
+  (ensure-dir (merge-pathnames "content/org/" *blog-root*)))
+
 
 (defun xdg-data-home ()
   "Best-effort XDG_DATA_HOME with facllback to ~/.local/share/ ."

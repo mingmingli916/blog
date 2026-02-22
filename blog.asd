@@ -15,8 +15,8 @@
      (:file "storage")
      (:module "dsl"
       :components
-      (:file "post")
-      (:file "sexp->html"))
+      ((:file "post")
+      (:file "sexp-to-html")))
      (:file "render")
      (:file "routes")                   ;
      (:file "server")                   ; start/stop hunchentoot server
